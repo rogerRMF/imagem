@@ -1,6 +1,6 @@
 import streamlit as st
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, HRFlowable
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, HRFlowable, Table, TableStyle, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from io import BytesIO
@@ -11,15 +11,19 @@ import datetime
 st.set_page_config(
     page_title="Portal de Laudos Técnicos", 
     page_icon="📋",
-    layout="wide", # Tela cheia para um visual mais profissional e espaçado
+    layout="wide", 
     initial_sidebar_state="collapsed"
 )
+
+# Inicialização da Memória do Aplicativo (Session State)
+if "lista_registros" not in st.session_state:
+    st.session_state.lista_registros = []
 
 # --- CABEÇALHO CORPORATIVO ---
 st.markdown("""
     <div style="background-color: #1E3A8A; padding: 20px; border-radius: 10px; margin-bottom: 25px;">
-        <h1 style="color: white; margin: 0; font-size: 28px; font-family: sans-serif;">📋 Sistema de Relatórios Fotográficos</h1>
-        <p style="color: #93C5FD; margin: 5px 0 0 0; font-size: 14px;">Emissão rápida de laudos técnicos e vistorias em campo</p>
+        <h1 style="color: white; margin: 0; font-size: 28px; font-family: sans-serif;">📋 Sistema de Relatórios Multi-Fotográficos</h1>
+        <p style="color: #93C5FD; margin: 5px 0 0 0; font-size: 14px;">Tire múltiplas fotos, descreva cada uma e gere o laudo estruturado</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -28,7 +32,7 @@ col_dados, col_camera = st.columns([1, 1.2], gap="large")
 
 with col_dados:
     st.subheader("📝 Dados do Inspetor")
-    with st.container(border=True): # Cria um card elegante ao redor dos inputs
+    with st.container(border=True):
         nome_responsavel = st.text_input(
             "Nome Completo do Responsável:",
             placeholder="Ex: Rogério Ferreira",
@@ -36,72 +40,128 @@ with col_dados:
         )
         
         data_exibicao = datetime.datetime.now().strftime("%d/%m/%Y")
-        st.text_input("Data da Inspeção:", value=data_exibicao, disabled=True, help="Data gerada automaticamente pelo sistema.")
+        st.text_input("Data da Inspeção:", value=data_exibicao, disabled=True)
 
-    st.subheader("🔍 Informações da Ocorrência")
+    st.subheader("🔍 Nova Ocorrência / Foto")
     with st.container(border=True):
-        descricao = st.text_area(
-            "Descrição Detalhada dos Fatos Constatados:", 
-            placeholder="Descreva minuciosamente os detalhes técnicos do objeto, ambiente ou inconformidade capturada...",
-            height=200,
-            help="Evite termos informais. O texto digitado aqui preencherá o corpo principal do PDF."
+        descricao_foto = st.text_area(
+            "Descrição desta Foto Específica:", 
+            placeholder="Descreva minuciosamente os detalhes técnicos observados NESTA imagem...",
+            height=120,
+            key="temp_descricao"
         )
+        
+        botao_adicionar = st.button("➕ Adicionar Foto ao Relatório", use_container_width=True, type="secondary")
 
 with col_camera:
-    st.subheader("📸 Registro Fotográfico")
+    st.subheader("📸 Captura de Imagem")
     with st.container(border=True):
         foto_capturada = st.camera_input("Ativar Câmera do Dispositivo")
 
-    # --- ÁREA DE PROCESSAMENTO E EMISSÃO DO PDF ---
-    st.subheader("🚀 Emissão do Documento")
-    with st.container(border=True):
-        if foto_capturada:
-            if nome_responsavel.strip():
-                st.success("✅ Tudo pronto! Os dados e a foto foram validados.")
-                
-                # Função auxiliar para gerar o PDF na memória
-                def gerar_pdf(imagem_bytes, texto_descricao, nome_usuario):
-                    buffer = BytesIO()
-                    doc = SimpleDocTemplate(
-                        buffer, 
-                        pagesize=letter,
-                        rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54
-                    )
-                    
-                    elementos = []
-                    estilos = getSampleStyleSheet()
-                    
-                    estilo_titulo = ParagraphStyle(
-                        'TituloRelatorio',
-                        parent=estilos['Heading1'],
-                        fontSize=22, leading=26, alignment=TA_CENTER, spaceAfter=15, textColor="#1E3A8A"
-                    )
-                    estilo_subtitulo = ParagraphStyle(
-                        'SubtituloRelatorio',
-                        parent=estilos['Normal'],
-                        fontSize=11, leading=14, alignment=TA_LEFT, spaceAfter=5, textColor="#333333"
-                    )
-                    estilo_texto = ParagraphStyle(
-                        'TextoRelatorio',
-                        parent=estilos['Normal'],
-                        fontSize=12, leading=18, alignment=TA_JUSTIFY, spaceAfter=15
-                    )
-                    estilo_assinatura = ParagraphStyle(
-                        'AssinaturaRelatorio',
-                        parent=estilos['Normal'],
-                        fontSize=12, leading=16, alignment=TA_CENTER, spaceAfter=5
-                    )
+# Lógica para salvar a imagem e descrição na memória
+if botao_adicionar:
+    if foto_capturada is not None:
+        st.session_state.lista_registros.append({
+            "imagem": foto_capturada.getvalue(),
+            "descricao": descricao_foto if descricao_foto.strip() else "Nenhuma descrição detalhada fornecida para este registro."
+        })
+        st.toast("Foto e descrição adicionadas com sucesso!", icon="✅")
+    else:
+        st.error("⚠️ Nenhuma imagem capturada! Tire uma foto antes de clicar em adicionar.")
 
-                    elementos.append(Paragraph("<b>RELATÓRIO TÉCNICO FOTOGRÁFICO</b>", estilo_titulo))
-                    data_atual = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+# --- HISTÓRICO VISUAL DAS FOTOS JÁ ADICIONADAS ---
+if st.session_state.lista_registros:
+    st.divider()
+    st.subheader(f"🖼️ Fotos Adicionadas ao Laudo ({len(st.session_state.lista_registros)})")
+    
+    cols_historico = st.columns(4)
+    for idx, item in enumerate(st.session_state.lista_registros):
+        with cols_historico[idx % 4]:
+            with st.container(border=True):
+                st.image(item["imagem"], caption=f"Foto {idx+1}", use_container_width=True)
+                st.caption(f"**Descrição:** {item['descricao'][:50]}...")
+                if st.button(f"🗑️ Remover", key=f"del_{idx}", use_container_width=True):
+                    st.session_state.lista_registros.pop(idx)
+                    st.rerun()
+
+# --- ÁREA DE EMISSÃO DO PDF ---
+if st.session_state.lista_registros:
+    st.divider()
+    st.subheader("🚀 Fechamento e Emissão do Documento")
+    
+    with st.container(border=True):
+        if nome_responsavel.strip():
+            st.success(f"✅ Tudo pronto! O relatório contém {len(st.session_state.lista_registros)} registro(s) fotográfico(s) estruturado(s).")
+            
+            # Função auxiliar interna que monta o PDF corrigido e blindado contra quebras órfãs
+            def gerar_pdf_multiplo(lista_dados, nome_usuario):
+                buffer = BytesIO()
+                doc = SimpleDocTemplate(
+                    buffer, 
+                    pagesize=letter,
+                    rightMargin=54, leftMargin=54, topMargin=54, bottomMargin=54
+                )
+                
+                elementos = []
+                estilos = getSampleStyleSheet()
+                
+                # Definição e Customização de Estilos
+                estilo_titulo = ParagraphStyle(
+                    'TituloRelatorio', parent=estilos['Heading1'],
+                    fontSize=22, leading=26, alignment=TA_CENTER, spaceAfter=15, textColor="#1E3A8A"
+                )
+                estilo_meta_lbl = ParagraphStyle(
+                    'MetaLabel', parent=estilos['Normal'],
+                    fontSize=11, leading=15, alignment=TA_LEFT, textColor="#1E3A8A"
+                )
+                estilo_meta_val = ParagraphStyle(
+                    'MetaValue', parent=estilos['Normal'],
+                    fontSize=11, leading=15, alignment=TA_LEFT, textColor="#333333"
+                )
+                estilo_item_titulo = ParagraphStyle(
+                    'ItemTitulo', parent=estilos['Heading2'],
+                    fontSize=13, leading=17, alignment=TA_LEFT, spaceBefore=5, spaceAfter=8, textColor="#1E3A8A"
+                )
+                estilo_desc_lbl = ParagraphStyle(
+                    'DescLabel', parent=estilos['Normal'],
+                    fontSize=11, leading=15, alignment=TA_LEFT, spaceBefore=6, spaceAfter=2, textColor="#1E3A8A"
+                )
+                estilo_texto = ParagraphStyle(
+                    'TextoRelatorio', parent=estilos['Normal'],
+                    fontSize=11, leading=16, alignment=TA_JUSTIFY, spaceAfter=5, textColor="#222222"
+                )
+                estilo_assinatura = ParagraphStyle(
+                    'AssinaturaRelatorio', parent=estilos['Normal'],
+                    fontSize=11, leading=15, alignment=TA_CENTER, spaceAfter=4
+                )
+
+                # 1. Cabeçalho Formal
+                elementos.append(Paragraph("<b>RELATÓRIO TÉCNICO FOTOGRÁFICO</b>", estilo_titulo))
+                data_atual = datetime.datetime.now().strftime("%d/%m/%Y às %H:%M:%S")
+                
+                dados_meta = [
+                    [Paragraph("<b>Responsável Técnico:</b>", estilo_meta_lbl), Paragraph(nome_usuario.upper(), estilo_meta_val)],
+                    [Paragraph("<b>Data de Emissão:</b>", estilo_meta_lbl), Paragraph(data_atual, estilo_meta_val)]
+                ]
+                tabela_meta = Table(dados_meta, colWidths=[130, 370])
+                tabela_meta.setStyle(TableStyle([
+                    ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                    ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+                    ('TOPPADDING', (0,0), (-1,-1), 2),
+                    ('LEFTPADDING', (0,0), (-1,-1), 0),
+                    ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ]))
+                elementos.append(tabela_meta)
+                elementos.append(HRFlowable(width="100%", thickness=1.5, color="#1E3A8A", spaceBefore=10, spaceAfter=15))
+                
+                # 2. LOOP: Varre os itens blindando as fotos com KeepTogether
+                for idx, registro in enumerate(lista_dados):
+                    conteudo_bloco = []
                     
-                    elementos.append(Paragraph(f"<b>Responsável Técnico:</b> {nome_usuario.upper()}", estilo_subtitulo))
-                    elementos.append(Paragraph(f"<b>Data de Emissão:</b> {data_atual}", estilo_subtitulo))
-                    elementos.append(HRFlowable(width="100%", thickness=1, color="#1E3A8A", spaceBefore=10, spaceAfter=20))
+                    conteudo_bloco.append(Paragraph(f"<b>Item {idx + 1} — Registro Fotográfico</b>", estilo_item_titulo))
                     
-                    # Processa Imagem
-                    img_pil = PILImage.open(imagem_bytes)
-                    largura_max = 440
+                    img_pil = PILImage.open(BytesIO(registro["imagem"]))
+                    largura_max = 440  
                     w_percent = (largura_max / float(img_pil.size[0]))
                     h_size = int((float(img_pil.size[1]) * float(w_percent)))
                     
@@ -111,34 +171,50 @@ with col_camera:
                     
                     pdf_img = Image(img_buffer, width=largura_max, height=h_size)
                     pdf_img.hAlign = 'CENTER'
-                    elementos.append(pdf_img)
-                    elementos.append(Spacer(1, 25))
+                    conteudo_bloco.append(pdf_img)
+                    conteudo_bloco.append(Spacer(1, 8))
                     
-                    elementos.append(Paragraph("<b>1. Descrição dos Fatos Constatados:</b>", estilo_texto))
-                    texto_final = texto_descricao if texto_descricao.strip() else "Nenhuma descrição detalhada foi fornecida."
-                    elementos.append(Paragraph(texto_final, estilo_texto))
-                    elementos.append(Spacer(1, 40))
+                    conteudo_bloco.append(Paragraph(f"<b>Descrição do Item {idx + 1}:</b>", estilo_desc_lbl))
+                    conteudo_bloco.append(Paragraph(registro["descricao"], estilo_texto))
                     
-                    elementos.append(HRFlowable(width="40%", thickness=1, color="#A3A3A3", hAlign='CENTER', spaceAfter=5))
-                    elementos.append(Paragraph(f"<b>{nome_usuario.upper()}</b>", estilo_assinatura))
-                    elementos.append(Paragraph("Responsável pela Inspeção Fotográfica", estilo_assinatura))
+                    if idx < len(lista_dados) - 1:
+                        conteudo_bloco.append(Spacer(1, 10))
+                        conteudo_bloco.append(HRFlowable(width="100%", thickness=0.5, color="#CCCCCC", spaceBefore=5, spaceAfter=5))
                     
-                    doc.build(elementos)
-                    buffer.seek(0)
-                    return buffer
+                    elementos.append(KeepTogether(conteudo_bloco))
+                    elementos.append(Spacer(1, 10))
+                
+                elementos.append(Spacer(1, 20))
+                
+                # 3. Assinatura de Fechamento
+                bloco_assinatura = []
+                bloco_assinatura.append(HRFlowable(width="40%", thickness=1, color="#A3A3A3", hAlign='CENTER', spaceAfter=6))
+                bloco_assinatura.append(Paragraph(f"<b>{nome_usuario.upper()}</b>", estilo_assinatura))
+                bloco_assinatura.append(Paragraph("Responsável pela Inspeção Fotográfica", estilo_assinatura))
+                elementos.append(KeepTogether(bloco_assinatura))
+                
+                doc.build(elementos)
+                buffer.seek(0)
+                return buffer
 
-                if st.button("⚙️ Compilar e Gerar PDF", use_container_width=True, type="primary"):
-                    with st.spinner("Estruturando laudo e tratando imagem..."):
-                        pdf_data = gerar_pdf(foto_capturada, descricao, nome_responsavel)
-                        
-                        st.download_button(
-                            label="📥 DOWNLOAD DO RELATÓRIO PDF",
-                            data=pdf_data,
-                            file_name=f"laudo_{nome_responsavel.replace(' ', '_').lower()}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True
-                        )
-            else:
-                st.info("⚠️ Para liberar a emissão do laudo, preencha o campo 'Nome Completo do Responsável'.")
+            # Executa a geração do PDF para deixar em memória
+            pdf_data = gerar_pdf_multiplo(st.session_state.lista_registros, nome_responsavel)
+            nome_arquivo_pdf = f"laudo_tecnico_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
+            # Botão de Download simplificado ocupando a largura total de forma elegante
+            st.download_button(
+                label="📥 Baixar Relatório PDF Concluído",
+                data=pdf_data,
+                file_name=nome_arquivo_pdf,
+                mime="application/pdf",
+                use_container_width=True,
+                type="primary"
+            )
+            
+            # Botão para resetar o app
+            st.write("")
+            if st.button("🧹 Limpar Dados e Iniciar Novo Relatório", use_container_width=True):
+                st.session_state.lista_registros = []
+                st.rerun()
         else:
-            st.info("📸 Ative a câmera e capture uma foto ao lado para habilitar a geração do relatório.")
+            st.info("⚠️ Preencha o campo 'Nome Completo do Responsável' no topo para liberar o download do relatório.")
